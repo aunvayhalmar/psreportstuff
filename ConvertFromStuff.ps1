@@ -49,41 +49,43 @@ function Update-Table {
         [Parameter(Mandatory = $true, ParameterSetName = 'Return')]
         [Switch]$Return,
         [Parameter(Mandatory = $true, ParameterSetName = 'Explore')]
-        [Switch]$Explore
+        [Switch]$Explore,
+        [Switch]$CloneInputObject
     )
-    $io_header = $InputObject[0].psobject.Properties.Name
-    $uo_header = $UpdateObject[0].psobject.Properties.Name
-    $un_header = $UpdateObject[0].psobject.Properties.Name
+    $InputObjectHeader          = $InputObject[0].psobject.Properties.Name
+    $UpdateObjectOriginalHeader = $UpdateObject[0].psobject.Properties.Name
+    $UpdateObjectNewHeader = $UpdateObject[0].psobject.Properties.Name
+    if($CloneInputObject){ $InputObject = $InputObject | ConvertTo-Json | ConvertFrom-Json }
     $UpdateObject = $UpdateObject | ConvertTo-Json | ConvertFrom-Json
-    $keep_un_headers = [Array]::CreateInstance([string],$un_header.Count)
+    $keep_un_headers = [Array]::CreateInstance([string],$UpdateObjectNewHeader.Count)
     $MissingHeaders = @()
     if ($ModifyUpdateHeader) {
         foreach($key in @($ModifyUpdateHeader.keys)) {
-            if ($key -is [int] -and $key -lt $uo_header.count) {
-                $un_header[$key] = $ModifyUpdateHeader[$key]
+            if ($key -is [int] -and $key -lt $UpdateObjectOriginalHeader.count) {
+                $UpdateObjectNewHeader[$key] = $ModifyUpdateHeader[$key]
                 $keep_un_headers[$key] = $ModifyUpdateHeader[$key]
-                $UpdateObject | Add-Member -MemberType AliasProperty -Name $un_header[$key] -Value $uo_header[$key]
-            } elseif ($uo_header.IndexOf($key) -ne -1) {
-                $Index_of = $uo_header.IndexOf($key)
-                $un_header[$Index_of] = $ModifyUpdateHeader[$key]
+                $UpdateObject | Add-Member -MemberType AliasProperty -Name $UpdateObjectNewHeader[$key] -Value $UpdateObjectOriginalHeader[$key]
+            } elseif ($UpdateObjectOriginalHeader.IndexOf($key) -ne -1) {
+                $Index_of = $UpdateObjectOriginalHeader.IndexOf($key)
+                $UpdateObjectNewHeader[$Index_of] = $ModifyUpdateHeader[$key]
                 $keep_un_headers[$Index_of] = $ModifyUpdateHeader[$key]
-                $UpdateObject | Add-Member -MemberType AliasProperty -Name $un_header[$Index_of] -Value $uo_header[$Index_of]
+                $UpdateObject | Add-Member -MemberType AliasProperty -Name $UpdateObjectNewHeader[$Index_of] -Value $UpdateObjectOriginalHeader[$Index_of]
             } else {
                 $MissingHeaders += $key
             }
         }
         Write-Host "Original Header:" -NoNewline
-        Write-Host $uo_header -Separator ","
+        Write-Host $UpdateObjectOriginalHeader -Separator ","
         Write-Host "Updated Header:" -NoNewline
-        Write-Host $un_header  -Separator ","        
+        Write-Host $UpdateObjectNewHeader  -Separator ","        
     }
-    if ($KeyProperty -notin $uo_header -or $KeyProperty -notin $un_header) {
+    if ($KeyProperty -notin $UpdateObjectOriginalHeader -or $KeyProperty -notin $UpdateObjectNewHeader) {
         throw "The InputObject and UpdateObject do not have a Property named $KeyProperty."
     }
     if ($KeepUpdateHeaders) {
         foreach($key in $KeepUpdateHeaders) {
-            if($key -in $un_header){
-                $Index_of = $un_header.IndexOf($key)
+            if($key -in $UpdateObjectNewHeader){
+                $Index_of = $UpdateObjectNewHeader.IndexOf($key)
                 $keep_un_headers[$Index_of] = $key
             } else {
                 $MissingHeaders += $key
@@ -95,47 +97,51 @@ function Update-Table {
         Write-Host $MissingHeaders -Separator ","
     }    
     if ($keep_un_headers -ne $null) {
-        $Index_of = $un_header.IndexOf($KeyProperty)
+        $Index_of = $UpdateObjectNewHeader.IndexOf($KeyProperty)
         $keep_un_headers[$Index_of] = $KeyProperty
         $keep_un_headers = $keep_un_headers -ne $null | Select-Object -Unique
-        $U_Object = $UpdateObject | Select-Object -Property $keep_un_headers
-        $n_header = $io_header + $keep_un_headers | Select-Object -Unique
+        $U_Object = $UpdateObject #| Select-Object -Property $keep_un_headers
+        $NewHeader = $InputObjectHeader + $keep_un_headers | Select-Object -Unique
     } else {
         $U_Object = $UpdateObject
-        $n_header = $io_header + $un_header | Select-Object -Unique
-        $keep_un_headers = $un_header
+        $NewHeader = $InputObjectHeader + $UpdateObjectNewHeader | Select-Object -Unique
+        $keep_un_headers = $UpdateObjectNewHeader
     }
     $u_header = $keep_un_headers -ne $KeyProperty
     $diff = Compare-Object -ReferenceObject $InputObject -DifferenceObject $U_Object -Property $KeyProperty
     $diff | Add-Member -MemberType AliasProperty -Name " " -Value 'SideIndicator'
-
+    $adds,$removes = $diff.Where({$_.SideIndicator -eq "=>"}, "Split")
     if($Explore){
-        $SI_to_diff = @{"=>"="+";"<="="-"}
-        $diff | ForEach-Object {$_.SideIndicator = $SI_to_diff[$_.SideIndicator] }
+        $adds | Add-Member -NotePropertyName "SideIndicator" -NotePropertyValue "+" -Force
+        $removes | Add-Member -NotePropertyName "SideIndicator" -NotePropertyValue "-" -Force
         Write-Host ($diff | Format-Table -Property " ",$KeyProperty | Out-String)
     }
     if($Return){
+        $h_diff = Compare-Object -ReferenceObject $InputObjectHeader -DifferenceObject $NewHeader | Where-Object {$_.SideIndicator -eq "=>"}
+        if($h_diff){
+            $new_h = [ordered]@{}
+            foreach($h in $h_diff.InputObject){
+                $new_h[$h] = ""
+            }
+            $InputObject | Add-Member -NotePropertyMembers $new_h
+        }
         $irows = [ordered]@{}
-        foreach($row in $InputObject){
+        foreach($row in $I_Object){
             $irows[$row.$KeyProperty] = $row
         }
-        <# $urows = [ordered]@{}
-        foreach($row in $U_Object){
-            $urows[$row.$KeyProperty] = $row
-        } #>
         for($i = 0 ;$i -lt ($U_Object.count);$i++){
             $u = $U_Object[$i]
-            if($null -ne $irows[$U_Object[$i].$KeyProperty]){                
+            if($null -ne $irows[$U_Object[$i].$KeyProperty]){
                 $o = $irows[$u.$KeyProperty]
                 foreach($field in $u_header){
                     $o.$field = $u.$field
                 }
             } elseif ($Mode -in "Add","AddRemove") {
-                $irows[$u.$KeyProperty] = $u | Select-Object -Property $n_header
+                $irows[$u.$KeyProperty] = $u | Select-Object -Property $NewHeader
             }
         }
         if ($Mode -in "Remove","AddRemove"){
-            foreach($Remove in ($diff | Where-Object {$_.SideIndicator -eq "<="} )){
+            foreach($Remove in $removes){
                 $irows[$Remove.$KeyProperty] = $null
             }
         }
