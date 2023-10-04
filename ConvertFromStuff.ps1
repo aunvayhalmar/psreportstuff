@@ -54,61 +54,59 @@ function Update-Table {
     )
     $InputObjectHeader          = $InputObject[0].psobject.Properties.Name
     $UpdateObjectOriginalHeader = $UpdateObject[0].psobject.Properties.Name
-    $UpdateObjectNewHeader = $UpdateObject[0].psobject.Properties.Name
-    if($CloneInputObject){ $InputObject = $InputObject | ConvertTo-Json | ConvertFrom-Json }
+    $UpdateObjectNewHeader      = $UpdateObject[0].psobject.Properties.Name
+    if ($CloneInputObject) { $InputObject = $InputObject | ConvertTo-Json | ConvertFrom-Json }
     $UpdateObject = $UpdateObject | ConvertTo-Json | ConvertFrom-Json
-    $keep_un_headers = [Array]::CreateInstance([string],$UpdateObjectNewHeader.Count)
+    $KeepUpdateNewHeader = [Array]::CreateInstance([string],$UpdateObjectNewHeader.Count)
     $MissingHeaders = @()
     if ($ModifyUpdateHeader) {
         foreach($key in @($ModifyUpdateHeader.keys)) {
             if ($key -is [int] -and $key -lt $UpdateObjectOriginalHeader.count) {
                 $UpdateObjectNewHeader[$key] = $ModifyUpdateHeader[$key]
-                $keep_un_headers[$key] = $ModifyUpdateHeader[$key]
+                $KeepUpdateNewHeader[$key] = $ModifyUpdateHeader[$key]
                 $UpdateObject | Add-Member -MemberType AliasProperty -Name $UpdateObjectNewHeader[$key] -Value $UpdateObjectOriginalHeader[$key]
             } elseif ($UpdateObjectOriginalHeader.IndexOf($key) -ne -1) {
-                $Index_of = $UpdateObjectOriginalHeader.IndexOf($key)
-                $UpdateObjectNewHeader[$Index_of] = $ModifyUpdateHeader[$key]
-                $keep_un_headers[$Index_of] = $ModifyUpdateHeader[$key]
-                $UpdateObject | Add-Member -MemberType AliasProperty -Name $UpdateObjectNewHeader[$Index_of] -Value $UpdateObjectOriginalHeader[$Index_of]
+                $Index_of_key = $UpdateObjectOriginalHeader.IndexOf($key)
+                $UpdateObjectNewHeader[$Index_of_key] = $ModifyUpdateHeader[$key]
+                $KeepUpdateNewHeader[$Index_of_key] = $ModifyUpdateHeader[$key]
+                $UpdateObject | Add-Member -MemberType AliasProperty -Name $UpdateObjectNewHeader[$Index_of_key] -Value $UpdateObjectOriginalHeader[$Index_of_key]
             } else {
                 $MissingHeaders += $key
             }
         }
-        Write-Host "Original Header:" -NoNewline
+        Write-Host "Original Header: " -NoNewline
         Write-Host $UpdateObjectOriginalHeader -Separator ","
-        Write-Host "Updated Header:" -NoNewline
-        Write-Host $UpdateObjectNewHeader  -Separator ","        
+        Write-Host " Updated Header: " -NoNewline
+        Write-Host $UpdateObjectNewHeader  -Separator ","
     }
-    if ($KeyProperty -notin $UpdateObjectOriginalHeader -or $KeyProperty -notin $UpdateObjectNewHeader) {
+    if ($KeyProperty -notin $InputObjectHeader -or $KeyProperty -notin $UpdateObjectNewHeader) {
         throw "The InputObject and UpdateObject do not have a Property named $KeyProperty."
     }
     if ($KeepUpdateHeaders) {
         foreach($key in $KeepUpdateHeaders) {
             if($key -in $UpdateObjectNewHeader){
-                $Index_of = $UpdateObjectNewHeader.IndexOf($key)
-                $keep_un_headers[$Index_of] = $key
+                $Index_of_key = $UpdateObjectNewHeader.IndexOf($key)
+                $KeepUpdateNewHeader[$Index_of_key] = $key
             } else {
                 $MissingHeaders += $key
             }
-        }        
+        }
     }
     if($MissingHeaders){
         Write-Host "MissingHeaders:" -NoNewline
         Write-Host $MissingHeaders -Separator ","
     }    
-    if ($keep_un_headers -ne $null) {
-        $Index_of = $UpdateObjectNewHeader.IndexOf($KeyProperty)
-        $keep_un_headers[$Index_of] = $KeyProperty
-        $keep_un_headers = $keep_un_headers -ne $null | Select-Object -Unique
-        $U_Object = $UpdateObject #| Select-Object -Property $keep_un_headers
-        $NewHeader = $InputObjectHeader + $keep_un_headers | Select-Object -Unique
+    if ($KeepUpdateNewHeader -ne $null) {
+        $Index_of_KeyProperty = $UpdateObjectNewHeader.IndexOf($KeyProperty)
+        $KeepUpdateNewHeader[$Index_of_KeyProperty] = $KeyProperty
+        $KeepUpdateNewHeader = $KeepUpdateNewHeader -ne $null | Select-Object -Unique
+        $NewHeader = $InputObjectHeader + $KeepUpdateNewHeader | Select-Object -Unique
     } else {
-        $U_Object = $UpdateObject
         $NewHeader = $InputObjectHeader + $UpdateObjectNewHeader | Select-Object -Unique
-        $keep_un_headers = $UpdateObjectNewHeader
+        $KeepUpdateNewHeader = $UpdateObjectNewHeader
     }
-    $u_header = $keep_un_headers -ne $KeyProperty
-    $diff = Compare-Object -ReferenceObject $InputObject -DifferenceObject $U_Object -Property $KeyProperty
+    $u_header = $KeepUpdateNewHeader -ne $KeyProperty
+    $diff = Compare-Object -ReferenceObject $InputObject -DifferenceObject $UpdateObject -Property $KeyProperty
     $diff | Add-Member -MemberType AliasProperty -Name " " -Value 'SideIndicator'
     $adds,$removes = $diff.Where({$_.SideIndicator -eq "=>"}, "Split")
     if($Explore){
@@ -129,9 +127,9 @@ function Update-Table {
         foreach($row in $I_Object){
             $irows[$row.$KeyProperty] = $row
         }
-        for($i = 0 ;$i -lt ($U_Object.count);$i++){
-            $u = $U_Object[$i]
-            if($null -ne $irows[$U_Object[$i].$KeyProperty]){
+        for($i = 0 ;$i -lt ($UpdateObject.count);$i++){
+            $u = $UpdateObject[$i]
+            if($null -ne $irows[$UpdateObject[$i].$KeyProperty]){
                 $o = $irows[$u.$KeyProperty]
                 foreach($field in $u_header){
                     $o.$field = $u.$field
