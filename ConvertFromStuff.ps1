@@ -1,7 +1,7 @@
 function ConvertFrom-PaddedStrings {
     [CmdletBinding()]
     param (
-        [Parameter(ValueFromPipeline,Position=0)]
+        [Parameter(Position=0)]
         $InputObject
     )
     $fields = $InputObject[0].psobject.Properties.Name
@@ -19,7 +19,7 @@ function ConvertFrom-PaddedStrings {
 function Confirm-NotUnique {
     [CmdletBinding()]
     param (
-        [Parameter(ValueFromPipeline,Position=0)]
+        [Parameter(Position=0)]
         $InputObject,
         [String]$Property
     )
@@ -43,7 +43,7 @@ function Update-Table {
         $UpdateObject,
         [hashtable]$ModifyUpdateHeader,
         [String[]]$KeepUpdateHeaders,
-        [Parameter(Mandatory=$False)]
+        [Parameter(Mandatory=$True , ParameterSetName = 'Return')]
         [ValidateSet("Add","Remove","Update","AddRemove")]
         [String]$Mode,
         [Parameter(Mandatory = $true, ParameterSetName = 'Return')]
@@ -65,7 +65,7 @@ function Update-Table {
                 $UpdateObjectNewHeader[$key] = $ModifyUpdateHeader[$key]
                 $KeepUpdateNewHeader[$key] = $ModifyUpdateHeader[$key]
                 $UpdateObject | Add-Member -MemberType AliasProperty -Name $UpdateObjectNewHeader[$key] -Value $UpdateObjectOriginalHeader[$key]
-            } elseif ($UpdateObjectOriginalHeader.IndexOf($key) -ne -1) {
+            } elseif ($key -in $UpdateObjectOriginalHeader) {
                 $Index_of_key = $UpdateObjectOriginalHeader.IndexOf($key)
                 $UpdateObjectNewHeader[$Index_of_key] = $ModifyUpdateHeader[$key]
                 $KeepUpdateNewHeader[$Index_of_key] = $ModifyUpdateHeader[$key]
@@ -74,10 +74,8 @@ function Update-Table {
                 $MissingHeaders += $key
             }
         }
-        Write-Host "Original Header: " -NoNewline
-        Write-Host $UpdateObjectOriginalHeader -Separator ","
-        Write-Host " Updated Header: " -NoNewline
-        Write-Host $UpdateObjectNewHeader  -Separator ","
+        Write-Host "Original Header: $($UpdateObjectOriginalHeader -join ",")"
+        Write-Host " Updated Header: $($UpdateObjectNewHeader -join ",")"
     }
     if ($KeyProperty -notin $InputObjectHeader -or $KeyProperty -notin $UpdateObjectNewHeader) {
         throw "The InputObject and UpdateObject do not have a Property named $KeyProperty."
@@ -93,58 +91,57 @@ function Update-Table {
         }
     }
     if($MissingHeaders){
-        Write-Host "MissingHeaders:" -NoNewline
-        Write-Host $MissingHeaders -Separator ","
-    }    
+        Write-Host "MissingHeaders: $($MissingHeaders -join ",")"
+    }
     if ($KeepUpdateNewHeader -ne $null) {
-        $Index_of_KeyProperty = $UpdateObjectNewHeader.IndexOf($KeyProperty)
-        $KeepUpdateNewHeader[$Index_of_KeyProperty] = $KeyProperty
-        $KeepUpdateNewHeader = $KeepUpdateNewHeader -ne $null | Select-Object -Unique
+        $KeepUpdateNewHeader = $KeepUpdateNewHeader -ne $null -ne $KeyProperty | Select-Object -Unique
         $NewHeader = $InputObjectHeader + $KeepUpdateNewHeader | Select-Object -Unique
     } else {
         $NewHeader = $InputObjectHeader + $UpdateObjectNewHeader | Select-Object -Unique
-        $KeepUpdateNewHeader = $UpdateObjectNewHeader
+        $KeepUpdateNewHeader = $UpdateObjectNewHeader -ne $KeyProperty
     }
-    $u_header = $KeepUpdateNewHeader -ne $KeyProperty
     $diff = Compare-Object -ReferenceObject $InputObject -DifferenceObject $UpdateObject -Property $KeyProperty
-    $diff | Add-Member -MemberType AliasProperty -Name " " -Value 'SideIndicator'
     $adds,$removes = $diff.Where({$_.SideIndicator -eq "=>"}, "Split")
     if($Explore){
+        $diff | Add-Member -MemberType AliasProperty -Name " " -Value 'SideIndicator'
         $adds | Add-Member -NotePropertyName "SideIndicator" -NotePropertyValue "+" -Force
         $removes | Add-Member -NotePropertyName "SideIndicator" -NotePropertyValue "-" -Force
         Write-Host ($diff | Format-Table -Property " ",$KeyProperty | Out-String)
     }
     if($Return){
-        $h_diff = Compare-Object -ReferenceObject $InputObjectHeader -DifferenceObject $NewHeader | Where-Object {$_.SideIndicator -eq "=>"}
-        if($h_diff){
-            $new_h = [ordered]@{}
-            foreach($h in $h_diff.InputObject){
-                $new_h[$h] = ""
+        $Header_diff = Compare-Object -ReferenceObject $InputObjectHeader -DifferenceObject $NewHeader | Where-Object {$_.SideIndicator -eq "=>"}
+        if($Header_diff){
+            $New_Header_Table = [ordered]@{}
+            foreach($header in $Header_diff.InputObject){
+                $New_Header_Table[$header] = ""
             }
-            $InputObject | Add-Member -NotePropertyMembers $new_h
+            $InputObject | Add-Member -NotePropertyMembers $New_Header_Table
         }
-        $irows = [ordered]@{}
-        foreach($row in $I_Object){
-            $irows[$row.$KeyProperty] = $row
+        $InputObject_Table = [ordered]@{}
+        if ($Mode -in "Remove","AddRemove"){
+            $removes_list = $removes.$KeyProperty
+            foreach($row in $InputObject){
+                if($row.$KeyProperty -notin $removes_list){
+                    $InputObject_Table[$row.$KeyProperty] = $row
+                }
+            }
+        } else {
+            foreach($row in $InputObject){
+                $InputObject_Table[$row.$KeyProperty] = $row
+            }
         }
         for($i = 0 ;$i -lt ($UpdateObject.count);$i++){
-            $u = $UpdateObject[$i]
-            if($null -ne $irows[$UpdateObject[$i].$KeyProperty]){
-                $o = $irows[$u.$KeyProperty]
-                foreach($field in $u_header){
-                    $o.$field = $u.$field
+            $UpdateRow = $UpdateObject[$i]
+            if($null -ne $InputObject_Table[($UpdateRow.$KeyProperty)]){
+                $InputRow = $InputObject_Table[$UpdateRow.$KeyProperty]
+                foreach($field in $KeepUpdateNewHeader){
+                    $InputRow.$field = $UpdateRow.$field
                 }
             } elseif ($Mode -in "Add","AddRemove") {
-                $irows[$u.$KeyProperty] = $u | Select-Object -Property $NewHeader
+                $InputObject_Table[$UpdateRow.$KeyProperty] = $UpdateRow | Select-Object -Property $NewHeader
             }
-        }
-        if ($Mode -in "Remove","AddRemove"){
-            foreach($Remove in $removes){
-                $irows[$Remove.$KeyProperty] = $null
-            }
-        }
-        $ret = $irows.Values
-        return $ret -ne $null
+        }        
+        return $InputObject_Table.Values
     }
 }
 
