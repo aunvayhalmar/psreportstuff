@@ -86,11 +86,11 @@ function Update-Table {
             }
         }
         $check_UpdateObjectNewHeader = @{}
-        foreach ($h in $UpdateObjectNewHeader){
-            if(-not $check_UpdateObjectNewHeader[$h]){
-                $check_UpdateObjectNewHeader[$h] = $true
+        foreach ($eachUpdateObjectNewHeader in $UpdateObjectNewHeader){
+            if(-not $check_UpdateObjectNewHeader[$eachUpdateObjectNewHeader]){
+                $check_UpdateObjectNewHeader[$eachUpdateObjectNewHeader] = $true
             } else {
-                throw "The Updated Header contains $h more then once."
+                throw "The Updated Header contains $eachUpdateObjectNewHeader more then once."
             }
         }
         Write-Host "Original Header: $($UpdateObjectOriginalHeader -join ",")"
@@ -102,8 +102,7 @@ function Update-Table {
     if ($KeepUpdateHeaders) {
         foreach($key in $KeepUpdateHeaders) {
             if($key -in $UpdateObjectNewHeader){
-                $Index_of_key = $UpdateObjectNewHeader.IndexOf($key)
-                $KeepUpdateNewHeader[$Index_of_key] = $key
+                $KeepUpdateNewHeader[$UpdateObjectNewHeader.IndexOf($key)] = $key
             } else {
                 $MissingHeaders += $key
             }
@@ -118,15 +117,15 @@ function Update-Table {
         Write-Host "MissingHeaders: $($MissingHeaders -join ",")"
     }
     $CompareOptions = @{
-        ReferenceObject=$InputObject.$KeyProperty;
-        DifferenceObject=$UpdateObject.$PreModifyUpdateKeyProperty
+        "ReferenceObject" = $InputObject.$KeyProperty
+        "DifferenceObject" = $UpdateObject.$PreModifyUpdateKeyProperty
     }
     $AddsAndRemoves = Compare-Object @CompareOptions
     $Adds,$Removes = $AddsAndRemoves.Where({$_.SideIndicator -eq "=>"}, "Split")
     if ($Explore) {
         $AddsAndRemoves | Add-Member -MemberType AliasProperty -Name " " -Value 'SideIndicator'
         if ($Mode -in "Remove","AddRemove") {
-            $Removes | Add-Member -NotePropertyName "SideIndicator" -NotePropertyValue "-" -Force    
+            $Removes | Add-Member -NotePropertyName "SideIndicator" -NotePropertyValue "-" -Force
         }
         if ($Mode -in "Add","AddRemove") {
             $Adds | Add-Member -NotePropertyName "SideIndicator" -NotePropertyValue "+" -Force
@@ -137,7 +136,7 @@ function Update-Table {
             $InputObject = $InputObject | ConvertTo-Json | ConvertFrom-Json
         }
         if ($ModifyUpdateHeader) {
-            $UpdateObject = $UpdateObject | ConvertTo-Csv | ConvertFrom-Csv -Header $UpdateObjectNewHeader
+            $UpdateObject = $UpdateObject | ConvertTo-Csv | Select-Object -Skip 1 | ConvertFrom-Csv -Header $UpdateObjectNewHeader
         }
         $Header_diff = Compare-Object -ReferenceObject $InputObjectHeader -DifferenceObject $NewHeader | Where-Object {$_.SideIndicator -eq "=>"}
         if ($Header_diff) {
@@ -221,52 +220,50 @@ function ConvertFrom-ReportCSV {
     }
     $AllHeaders = @{}
     $headers_keys = "Original Header:","Header Parameter:","Updated Header:"
-    $csvopt = @{}
+    $CSVParameters = @{"WarningAction"="SilentlyContinue"}
     if ($Header) {
-        $csvopt["Header"] = $Header
+        $CSVParameters["Header"] = $Header
         $AllHeaders["Header Parameter:"] = $Header
-        $m_header = Write-Output $Header
+        $ModifiedHeader = Write-Output $Header
     } elseif (@($PSBoundParameters.Keys).Contains("Index")) {
-        $h_obj = $AllLinesRead | Select-Object -Skip $Index -First 2 | ConvertFrom-Csv
-        if ($h_obj) {
-            $AllHeaders["Original Header:"] = $h_obj[0].psobject.Properties.Name
-            $m_header = $h_obj[0].psobject.Properties.Name
+        $HeaderObject = $AllLinesRead | Select-Object -Skip $Index -First 2 | ConvertFrom-Csv
+        if ($HeaderObject) {
+            $AllHeaders["Original Header:"] = $HeaderObject[0].psobject.Properties.Name
+            $ModifiedHeader = $HeaderObject[0].psobject.Properties.Name
         } else {
             throw "`"$($AllLinesRead[$Index])`" is not a valid CSV Header"
         }
     }
     if ($ModifyHeader -and @($PSBoundParameters.Keys).Contains("Index")) {
         $MissingHeaders = @()
-        foreach ($key in @($ModifyHeader.keys)) {
-            if ($key -is [int] -and $key -lt $m_header.count) {
-                $m_header[$key] = $ModifyHeader[$key]
-            } elseif ($m_header.IndexOf($key) -ne -1) {
-                $Index_of = $m_header.IndexOf($key)
-                $m_header[$Index_of] = $ModifyHeader[$key]
+        foreach ($eachModifyHeader in @($ModifyHeader.keys)) {
+            if ($eachModifyHeader -is [int] -and $eachModifyHeader -lt $ModifiedHeader.count) {
+                $the_index_of_key = $eachModifyHeader                
+            } elseif ($eachModifyHeader -in $ModifiedHeader) {
+                $the_index_of_key = $ModifiedHeader.IndexOf($eachModifyHeader)                
             } else {
-                $MissingHeaders += $key
+                $MissingHeaders += $eachModifyHeader
+                continue
             }
+            $ModifiedHeader[$the_index_of_key] = $ModifyHeader[$eachModifyHeader]
         }
-        $csvopt["Header"] = $m_header
-        $AllHeaders["Updated Header:"] = Write-Output $m_header
+        $CSVParameters["Header"] = $ModifiedHeader
+        $AllHeaders["Updated Header:"] = Write-Output $ModifiedHeader
     }
-    $R_Index = $Index
+    $Shifted_Index = $Index
     if ($ModifyHeader -and -not $Header) {
-        $R_Index++
+        $Shifted_Index++
     }
     if ($Explore) {
-        $template = [ordered]@{"Index"="";"Line"=""}
         $Lines = [Array]::CreateInstance([psobject],$Count)
-        for ($i = 0 ;$i -lt  $Count;$i++) {
-            $template["Index"] = $i
-            $template["Line"] = $FirstLines[$i]
-            $Lines[$i] = New-Object psobject -Property $template
+        for ($line_i = 0 ;$line_i -lt  $Count;$line_i++) {
+            $Lines[$line_i] = New-Object psobject -Property ([ordered]@{"Index"=$line_i;"Line"=$FirstLines[$line_i]})
         }
         if (@($PSBoundParameters.Keys).Contains("Index")) {
             $Lines[$Index]."Index" = "[$Index]"
         }
         if ($Test -or $DumpHeader -or $ReturnHeader) {
-            $testing =  $FirstLines | Select-Object -Skip $R_Index | ConvertFrom-Csv @csvopt
+            $testing =  $FirstLines | Select-Object -Skip $Shifted_Index | ConvertFrom-Csv @CSVParameters
             if ($Test -and $testing) {
                 return $testing
             } elseif ($DumpHeader -and $testing) {
@@ -279,25 +276,92 @@ function ConvertFrom-ReportCSV {
         } else {
             Write-Host "First $Count Lines of Input as <String[]>:" -NoNewline
             $Lines | Format-Table -Property @{Name="Index";expression={$_."Index"};alignment="center"},"Line" | Out-String | Write-Host
-            $dh = @()
+            $HeaderInfo = @()
             foreach ($key in $headers_keys) {
-                $test_template = [ordered]@{}
+                $eachHeaderInfoRow = [ordered]@{"Header Index"=$key;}
                 if ($AllHeaders.ContainsKey($key)) {
-                    $test_template["Header Index"]=$key
-                    for ($i = 0 ;$i -lt $AllHeaders[$key].Count;$i++) {
-                        $test_template["$i"]=$AllHeaders[$key][$i]
+                    for ($AllHeaders_i = 0 ;$AllHeaders_i -lt $AllHeaders[$key].Count;$AllHeaders_i++) {
+                        $eachHeaderInfoRow["$AllHeaders_i"]=$AllHeaders[$key][$AllHeaders_i]
                     }
-                    $dh += New-Object psobject -Property $test_template
+                    $HeaderInfo += New-Object psobject -Property $eachHeaderInfoRow
                 }
             }
-            $dh | Format-Table | Out-String | Write-Host
+            $HeaderInfoProperties = $HeaderInfo[0].psobject.Properties.Name
+            $HeaderInfo | Format-Table -Property $HeaderInfoProperties | Out-String | Write-Host
             if ($MissingHeaders) {
                 Write-Host "MissingHeaders:"
                 Write-Host $MissingHeaders
             }
         }
     } elseif ($Return) {
-        $AllLinesRead | Select-Object -Skip $R_Index | ConvertFrom-Csv @csvopt
+        $AllLinesRead | Select-Object -Skip $Shifted_Index | ConvertFrom-Csv @CSVParameters
     }
 }
 
+
+function ConvertFrom-Base64 {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$True,Position=0,ValueFromPipeline)]
+        [string]$InputObject
+    )
+    $b64char = @{
+        [char]"A"=0; [char]"B"=1; [char]"C"=2; [char]"D"=3; [char]"E"=4;
+        [char]"F"=5; [char]"G"=6; [char]"H"=7; [char]"I"=8; [char]"J"=9;
+        [char]"K"=10;[char]"L"=11;[char]"M"=12;[char]"N"=13;[char]"O"=14;
+        [char]"P"=15;[char]"Q"=16;[char]"R"=17;[char]"S"=18;[char]"T"=19;
+        [char]"U"=20;[char]"V"=21;[char]"W"=22;[char]"X"=23;[char]"Y"=24;
+        [char]"Z"=25;[char]"a"=26;[char]"b"=27;[char]"c"=28;[char]"d"=29;
+        [char]"e"=30;[char]"f"=31;[char]"g"=32;[char]"h"=33;[char]"i"=34;
+        [char]"j"=35;[char]"k"=36;[char]"l"=37;[char]"m"=38;[char]"n"=39;
+        [char]"o"=40;[char]"p"=41;[char]"q"=42;[char]"r"=43;[char]"s"=44;
+        [char]"t"=45;[char]"u"=46;[char]"v"=47;[char]"w"=48;[char]"x"=49;
+        [char]"y"=50;[char]"z"=51;[char]"0"=52;[char]"1"=53;[char]"2"=54;
+        [char]"3"=55;[char]"4"=56;[char]"5"=57;[char]"6"=58;[char]"7"=59;
+        [char]"8"=60;[char]"9"=61;[char]"+"=62;[char]"/"=63;[char]"="=64;
+        [char]","=63;
+        [char]"-"=62;[char]"_"=63;
+    }
+    $PaddingMultipliers = @(0,0,2,1)
+    if($InputObject.IndexOf([char]"`n") -ne -1){
+        $InputObject = [string]::Join("",($InputObject.Split([string[]]("`r`n","`n","`r"),[System.StringSplitOptions]::RemoveEmptyEntries)))
+    }
+    $InputObject += "="*$PaddingMultipliers[($InputObject.length % 4)]
+    if ($InputObject[-2] -eq [char]"=") {
+        $ReturnObjectLength = $InputObject.Length / 4 * 3 - 2        
+    } elseif($InputObject[-1] -eq [char]"=") {
+        $ReturnObjectLength = $InputObject.Length / 4 * 3 - 1
+    } else {
+        $ReturnObjectLength = $InputObject.Length / 4 * 3
+    }
+    $InputObjectLengthMinusOne = $InputObject.length / 4 - 1    
+    $d64s = [byte[]]::new($ReturnObjectLength)
+    for($f = 0 ;$f -lt  $InputObjectLengthMinusOne;$f++){
+        $s = 4 * $f
+        $a = 3 * $f
+        $n = $b64char[$InputObject[$s]]
+        foreach($i in 1,2,3){
+            $n = $n -shl 6
+            $n = $n + $b64char[$InputObject[$s+$i]]
+        }
+        $b = [bigint]::new($n)
+        $ba = $b.ToByteArray($false,$true)
+        $ba.CopyTo($d64s,$a)
+    }
+    $s = 4 * $f
+    $a = 3 * $f
+    $n = $b64char[$InputObject[$s]]
+    foreach($i in 1,2,3){
+        $n = $n -shl 6
+        $n = $n + $b64char[$InputObject[$s+$i]]
+    }
+    if($InputObject[-2] -eq [char]"=") {
+        $n = $n -shr 16
+    } elseif($InputObject[-1] -eq [char]"=") {
+        $n = $n -shr 8
+    }
+    $b = [bigint]::new($n)
+    $ba = $b.ToByteArray($false,$true)
+    $ba.CopyTo($d64s,$a)
+    return $d64s
+}
