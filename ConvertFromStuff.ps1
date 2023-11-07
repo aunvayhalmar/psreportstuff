@@ -299,69 +299,81 @@ function ConvertFrom-ReportCSV {
 }
 
 
-function ConvertFrom-Base64 {
+function ConvertFrom-Base64String {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory=$True,Position=0,ValueFromPipeline)]
         [string]$InputObject
     )
-    $b64char = @{
-        [char]"A"=0; [char]"B"=1; [char]"C"=2; [char]"D"=3; [char]"E"=4;
-        [char]"F"=5; [char]"G"=6; [char]"H"=7; [char]"I"=8; [char]"J"=9;
-        [char]"K"=10;[char]"L"=11;[char]"M"=12;[char]"N"=13;[char]"O"=14;
-        [char]"P"=15;[char]"Q"=16;[char]"R"=17;[char]"S"=18;[char]"T"=19;
-        [char]"U"=20;[char]"V"=21;[char]"W"=22;[char]"X"=23;[char]"Y"=24;
-        [char]"Z"=25;[char]"a"=26;[char]"b"=27;[char]"c"=28;[char]"d"=29;
-        [char]"e"=30;[char]"f"=31;[char]"g"=32;[char]"h"=33;[char]"i"=34;
-        [char]"j"=35;[char]"k"=36;[char]"l"=37;[char]"m"=38;[char]"n"=39;
-        [char]"o"=40;[char]"p"=41;[char]"q"=42;[char]"r"=43;[char]"s"=44;
-        [char]"t"=45;[char]"u"=46;[char]"v"=47;[char]"w"=48;[char]"x"=49;
-        [char]"y"=50;[char]"z"=51;[char]"0"=52;[char]"1"=53;[char]"2"=54;
-        [char]"3"=55;[char]"4"=56;[char]"5"=57;[char]"6"=58;[char]"7"=59;
-        [char]"8"=60;[char]"9"=61;[char]"+"=62;[char]"/"=63;[char]"="=64;
-        [char]","=63;
-        [char]"-"=62;[char]"_"=63;
-    }
-    $PaddingMultipliers = @(0,0,2,1)
+    $base64array = @(
+        127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+        127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+        127,127,127,127,127,127,127,127,127,127,127, 62, 63, 62,127, 63,
+         52, 53, 54, 55, 56, 57, 58, 59, 60, 61,127,127,127, 64,127,127,
+        127,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
+         15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,127,127,127,127, 63,
+        127, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+         41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,127,127,127,127,127
+    )
     if($InputObject.IndexOf([char]"`n") -ne -1){
         $InputObject = [string]::Join("",($InputObject.Split([string[]]("`r`n","`n","`r"),[System.StringSplitOptions]::RemoveEmptyEntries)))
     }
-    $InputObject += "="*$PaddingMultipliers[($InputObject.length % 4)]
-    if ($InputObject[-2] -eq [char]"=") {
-        $ReturnObjectLength = $InputObject.Length / 4 * 3 - 2        
-    } elseif($InputObject[-1] -eq [char]"=") {
+    $InputObjectLengthMod4 = $InputObject.length % 4
+    if($InputObjectLengthMod4){
+        $PaddingMultipliers = @(0,0,2,1)
+        $InputObject += "="*$PaddingMultipliers[$InputObjectLengthMod4]
+    }
+    if ($InputObject[-2] -eq "=") {
+        $ReturnObjectLength = $InputObject.Length / 4 * 3 - 2
+    } elseif($InputObject[-1] -eq "=") {
         $ReturnObjectLength = $InputObject.Length / 4 * 3 - 1
     } else {
         $ReturnObjectLength = $InputObject.Length / 4 * 3
     }
-    $InputObjectLengthMinusOne = $InputObject.length / 4 - 1    
-    $d64s = [byte[]]::new($ReturnObjectLength)
-    for($f = 0 ;$f -lt  $InputObjectLengthMinusOne;$f++){
-        $s = 4 * $f
-        $a = 3 * $f
-        $n = $b64char[$InputObject[$s]]
-        foreach($i in 1,2,3){
-            $n = $n -shl 6
-            $n = $n + $b64char[$InputObject[$s+$i]]
-        }
-        $b = [bigint]::new($n)
-        $ba = $b.ToByteArray($false,$true)
-        $ba.CopyTo($d64s,$a)
+    $InputObjectGroupCountMinusOne = $InputObject.length / 4 - 1    
+    $baReturnObject = [byte[]]::new($ReturnObjectLength)
+    for($GroupNumber = 0 ;$GroupNumber -lt  $InputObjectGroupCountMinusOne;$GroupNumber++){
+        $SourceGroupStartIndex = 4 * $GroupNumber
+        $ReturnGroupStartIndex = 3 * $GroupNumber
+        $arrayGroupAsInteger = $base64array[$InputObject[$SourceGroupStartIndex]]
+        $arrayGroupAsInteger = $arrayGroupAsInteger -shl 6
+        $arrayGroupAsInteger = $arrayGroupAsInteger + $base64array[$InputObject[$SourceGroupStartIndex+1]]
+        $arrayGroupAsInteger = $arrayGroupAsInteger -shl 6
+        $arrayGroupAsInteger = $arrayGroupAsInteger + $base64array[$InputObject[$SourceGroupStartIndex+2]]
+        $arrayGroupAsInteger = $arrayGroupAsInteger -shl 6
+        $arrayGroupAsInteger = $arrayGroupAsInteger + $base64array[$InputObject[$SourceGroupStartIndex+3]]
+        $baReturnObject[$ReturnGroupStartIndex]   = $arrayGroupAsInteger -shr 16
+        $baReturnObject[$ReturnGroupStartIndex+1] = $arrayGroupAsInteger -shr 8 -band 255
+        $baReturnObject[$ReturnGroupStartIndex+2] = $arrayGroupAsInteger -band 255
     }
-    $s = 4 * $f
-    $a = 3 * $f
-    $n = $b64char[$InputObject[$s]]
-    foreach($i in 1,2,3){
-        $n = $n -shl 6
-        $n = $n + $b64char[$InputObject[$s+$i]]
-    }
+    $SourceGroupStartIndex = 4 * $GroupNumber
+    $ReturnGroupStartIndex = 3 * $GroupNumber
+    $arrayGroupAsInteger = $base64array[$InputObject[$SourceGroupStartIndex]]      
+
     if($InputObject[-2] -eq [char]"=") {
-        $n = $n -shr 16
+        $arrayGroupAsInteger = $arrayGroupAsInteger -shl 6
+        $arrayGroupAsInteger = $arrayGroupAsInteger + $base64array[$InputObject[$SourceGroupStartIndex+1]]
+        $arrayGroupAsInteger = $arrayGroupAsInteger -shl 12
     } elseif($InputObject[-1] -eq [char]"=") {
-        $n = $n -shr 8
+        $arrayGroupAsInteger = $arrayGroupAsInteger -shl 6
+        $arrayGroupAsInteger = $arrayGroupAsInteger + $base64array[$InputObject[$SourceGroupStartIndex+1]]
+        $arrayGroupAsInteger = $arrayGroupAsInteger -shl 6
+        $arrayGroupAsInteger = $arrayGroupAsInteger + $base64array[$InputObject[$SourceGroupStartIndex+2]]
+        $arrayGroupAsInteger = $arrayGroupAsInteger -shl 6
+    } else {
+        $arrayGroupAsInteger = $arrayGroupAsInteger -shl 6
+        $arrayGroupAsInteger = $arrayGroupAsInteger + $base64array[$InputObject[$SourceGroupStartIndex+1]]
+        $arrayGroupAsInteger = $arrayGroupAsInteger -shl 6
+        $arrayGroupAsInteger = $arrayGroupAsInteger + $base64array[$InputObject[$SourceGroupStartIndex+2]]
+        $arrayGroupAsInteger = $arrayGroupAsInteger -shl 6
+        $arrayGroupAsInteger = $arrayGroupAsInteger + $base64array[$InputObject[$SourceGroupStartIndex+3]]
     }
-    $b = [bigint]::new($n)
-    $ba = $b.ToByteArray($false,$true)
-    $ba.CopyTo($d64s,$a)
-    return $d64s
+    $baReturnObject[$ReturnGroupStartIndex] = $arrayGroupAsInteger -shr 16
+    if($ReturnGroupStartIndex+1 -lt $ReturnObjectLength){
+        $baReturnObject[$ReturnGroupStartIndex+1] = $arrayGroupAsInteger -shr 8 -band 255
+    }
+    if($ReturnGroupStartIndex+2 -lt $ReturnObjectLength){
+        $baReturnObject[$ReturnGroupStartIndex+2] = $arrayGroupAsInteger -band 255
+    }
+    return $baReturnObject
 }
