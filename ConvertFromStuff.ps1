@@ -210,8 +210,6 @@ function ConvertFrom-ReportCSV {
     }
     if ($InputObject) {
         $AllLinesRead = $InputObject.Split([string[]]("`r`n","`n","`r"),[System.StringSplitOptions]::RemoveEmptyEntries)
-        $FirstLines = [string[]]::new($Count)
-        [array]::Copy($AllLinesRead,$FirstLines,$Count)
     } elseif ($Path -and $Return) {
         $AllLinesRead = Get-Content -Path $Path
     } elseif ($Path -and $Explore) {
@@ -240,7 +238,7 @@ function ConvertFrom-ReportCSV {
             if ($eachModifyHeader -is [int] -and $eachModifyHeader -lt $ModifiedHeader.count) {
                 $the_index_of_key = $eachModifyHeader                
             } elseif ($eachModifyHeader -in $ModifiedHeader) {
-                $the_index_of_key = $ModifiedHeader.IndexOf($eachModifyHeader)                
+                $the_index_of_key = $ModifiedHeader.IndexOf($eachModifyHeader)
             } else {
                 $MissingHeaders += $eachModifyHeader
                 continue
@@ -255,6 +253,13 @@ function ConvertFrom-ReportCSV {
         $Shifted_Index++
     }
     if ($Explore) {
+        if ($AllLinesRead.Count -lt $Count){
+            $Count = $AllLinesRead.Count
+        }
+        if(-not $FirstLines){
+            $FirstLines = [string[]]::new($Count)
+            [Array]::Copy($AllLinesRead,$FirstLines,$Count)
+        }        
         $Lines = [Array]::CreateInstance([psobject],$Count)
         for ($line_i = 0 ;$line_i -lt  $Count;$line_i++) {
             $Lines[$line_i] = New-Object psobject -Property ([ordered]@{"Index"=$line_i;"Line"=$FirstLines[$line_i]})
