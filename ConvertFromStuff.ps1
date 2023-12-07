@@ -382,3 +382,63 @@ function ConvertFrom-Base64String {
     }
     return $baReturnObject
 }
+
+
+function ConvertTo-Base64 {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$True,Position=0,ValueFromPipeline)]
+        $InputObject,
+        [switch]$base64url,
+        [switch]$InsertLineBreaks
+    )
+    $b64a = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    $pad = @(0,2,1)
+    if($base64url){
+        $b64a[62]="-"
+        $b64a[63]="_"
+    }
+    if($InputObject -is [string]){
+        $InputObject = [char[]]$InputObject
+        try {
+            $InputObject = [byte[]]$InputObject
+        }
+        catch {
+            throw "This is an error."
+        }
+    }
+    $input_mod = $InputObject.length % 3
+    $last_len = 3 - $pad[$input_mod]
+    $out_len = ($InputObject.length + $pad[$input_mod]) / 3 * 4
+    $next_to_last_index = $out_len / 4 - 1
+    $b64s = [char[]]::new($out_len)
+    for($f = 0 ;$f -lt  $next_to_last_index;$f++){
+        $s = 4 * $f
+        $a = 3 * $f
+        $word = [byte[]]::new(3)
+        [array]::Copy($InputObject,$a,$word,0,3)
+        [array]::Reverse($word)
+        $b = [uint32][bigint]::new($word)
+        $b64s[$s]   = $b64a[($b -shr 18)]
+        $b64s[$s+1] = $b64a[($b -shr 12 -band 63)]
+        $b64s[$s+2] = $b64a[($b -shr 6  -band 63)]
+        $b64s[$s+3] = $b64a[($b -band 63)]
+    }
+    $s = 4 * $f
+    $a = 3 * $f
+    $word = [byte[]]::new(3)
+    [array]::Copy($InputObject,$a,$word,0,$last_len)
+    [array]::Reverse($word)
+    $b = [uint32][bigint]::new($word)
+    $b64s[$s]   = $b64a[($b -shr 18)]
+    $b64s[$s+1] = $b64a[($b -shr 12 -band 63)]
+    $b64s[$s+2] = $b64a[($b -shr 6  -band 63)]
+    $b64s[$s+3] = $b64a[($b -band 63)]
+    if($input_mod -eq 1) {
+        $b64s[$s+2] = "="
+    }
+    if($input_mod) {
+        $b64s[$s+3] = "="
+    }
+    return [string]::new($b64s)
+}
