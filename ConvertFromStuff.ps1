@@ -412,13 +412,12 @@ function ConvertTo-Base64 {
     $out_len = ($InputObject.length + $pad[$input_mod]) / 3 * 4
     $next_to_last_index = $out_len / 4 - 1
     $b64s = [char[]]::new($out_len)
-    for($f = 0 ;$f -lt  $next_to_last_index;$f++){
+    for($f = 0; $f -lt $next_to_last_index; $f++){
         $s = 4 * $f
         $a = 3 * $f
-        $word = [byte[]]::new(3)
+        $word = [uint32[]]::new(3)
         [array]::Copy($InputObject,$a,$word,0,3)
-        [array]::Reverse($word)
-        $b = [uint32][bigint]::new($word)
+        $b  = ($word[0] -shl 16) +  ($word[1] -shl 8) + $word[2]
         $b64s[$s]   = $b64a[($b -shr 18)]
         $b64s[$s+1] = $b64a[($b -shr 12 -band 63)]
         $b64s[$s+2] = $b64a[($b -shr 6  -band 63)]
@@ -426,10 +425,9 @@ function ConvertTo-Base64 {
     }
     $s = 4 * $f
     $a = 3 * $f
-    $word = [byte[]]::new(3)
-    [array]::Copy($InputObject,$a,$word,0,$last_len)
-    [array]::Reverse($word)
-    $b = [uint32][bigint]::new($word)
+    $word = [uint32[]]::new(3)
+    [array]::Copy($InputObject,$a,$word,0,$last_len)    
+    $b = ($word[0] -shl 16) + ($word[1] -shl 8) + $word[2]
     $b64s[$s]   = $b64a[($b -shr 18)]
     $b64s[$s+1] = $b64a[($b -shr 12 -band 63)]
     $b64s[$s+2] = $b64a[($b -shr 6  -band 63)]
